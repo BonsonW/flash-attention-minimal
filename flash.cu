@@ -9,6 +9,7 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
     int tx = threadIdx.x;
     int batch_idx = blockIdx.x;
     int head_idx = blockIdx.y;
+    int seq_stride = nheads * headdim;
 
     // offset into Q,K,V,O,l,m - different for each batch and head
     int qkv_offset = (batch_idx * seqlen * nheads * headdim) + (head_idx * headdim);
@@ -26,8 +27,8 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
 
         // Load Kj, Vj to SRAM
         for (int x = 0; x < headdim; x++) {
-            Kj[(tx * headdim) + x] = k[qkv_offset + (tile_size * j) + (tx * nheads * headdim) + x];
-            Vj[(tx * headdim) + x] = v[qkv_offset + (tile_size * j) + (tx * nheads * headdim) + x];
+            Kj[(tx * headdim) + x] = k[qkv_offset + (tile_size * j) + (tx * seq_stride) + x];
+            Vj[(tx * headdim) + x] = v[qkv_offset + (tile_size * j) + (tx * seq_stride) + x];
         }
         __syncthreads();  // such that the inner loop can use the correct Kj, Vj
 
@@ -35,7 +36,7 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
 
             // Load Qi to SRAM, l and m to registers
             for (int x = 0; x < headdim; x++) {
-                Qi[(tx * headdim) + x] = q[qkv_offset + (tile_size * i) + (tx * nheads * headdim) + x];
+                Qi[(tx * headdim) + x] = q[qkv_offset + (tile_size * i) + (tx * seq_stride) + x];
             }
             float row_m_prev = m[lm_offset + (batch_rows * i) + tx];
             float row_l_prev = l[lm_offset + (batch_rows * i) + tx];
@@ -71,8 +72,8 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
                 for (int y = 0; y < batch_cols; y++) {
                     pv += S[(batch_cols * tx) + y] * Vj[(y * headdim) + x];
                 }
-                O[qkv_offset + (tile_size * i) + (tx * nheads * headdim) + x] = (1 / row_l_new) \
-                    * ((row_l_prev * __expf(row_m_prev - row_m_new) * O[qkv_offset + (tile_size * i) + (tx * nheads * headdim) + x]) \
+                O[qkv_offset + (tile_size * i) + (tx * seq_stride) + x] = (1 / row_l_new) \
+                    * ((row_l_prev * __expf(row_m_prev - row_m_new) * O[qkv_offset + (tile_size * i) + (tx * seq_stride) + x]) \
                     + (__expf(row_m - row_m_new) * pv));
             }
             m[lm_offset + (batch_rows * i) + tx] = row_m_new;
