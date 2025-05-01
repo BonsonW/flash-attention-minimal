@@ -129,7 +129,7 @@ minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash.cu'], extra
 # Use small model params, otherwise slower than manual attention. See caveats in README.
 batch_size = 16
 n_head = 8
-seq_len = 64
+seq_len = 32
 head_embd = 64
 
 q = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
@@ -141,7 +141,8 @@ print('=== profiling manual attention ===')
 # Our minimal flash attention aims to be faster than this by avoiding HBM read/writes of N^2 matrices.
 
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    manual_result, attention = attention_ref(q, k, v, window_size=(10, 10))
+    manual_result, attention = attention_ref(q, k, v, window_size=(-1, -1))
+    # manual_result, attention = attention_ref(q, k, v, window_size=(8, 8))
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('=== profiling minimal flash attention === ')
