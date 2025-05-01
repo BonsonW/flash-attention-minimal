@@ -37,10 +37,10 @@ def construct_local_mask(
         )
 
         # show local mask
-        print('\n')
-        print('=== local mask ===')
-        tensorhue.viz(ret.cpu())
-        print('\n')
+        # print('\n')
+        # print('=== local mask ===')
+        # tensorhue.viz(ret.cpu())
+        # print('\n')
 
         return ret
 
@@ -148,10 +148,7 @@ print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 print('=== profiling minimal flash attention === ')
 
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    q = q.transpose(1, 2).contiguous()
-    k = k.transpose(1, 2).contiguous()
-    v = v.transpose(1, 2).contiguous()
-    minimal_result = minimal_attn.forward(q, k, v).transpose(1, 2)
+    minimal_result = minimal_attn.forward(q, k, v)
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('attn values sanity check:', torch.allclose(minimal_result, manual_result, rtol=0, atol=1e-02))
