@@ -91,7 +91,7 @@ torch::Tensor forward(torch::Tensor q, torch::Tensor k, torch::Tensor v) {
 
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
-    const int batch_cols = std::ceil(prop.sharedMemPerBlock / 4 * headdim);
+    const int batch_cols = std::min((float)std::ceil(prop.sharedMemPerBlock / sizeof(float) / (4 * headdim)), (float)seqlen);
     const int batch_rows = std::min(batch_cols, headdim);
 
     const int Tc = ceil((float) seqlen / batch_cols);
