@@ -51,8 +51,7 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
                 sum *= softmax_scale;
                 S[(batch_cols * tx) + y] = sum;
 
-                if (sum > row_m)
-                    row_m = sum;
+                if (sum > row_m) row_m = sum;
             }
 
             // P = exp(S - row_m), row_l = rowsum(P)
@@ -111,8 +110,8 @@ torch::Tensor forward(torch::Tensor q, torch::Tensor k, torch::Tensor v) {
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     printf("Max shared memory: %d, requested shared memory: %d \\n", max_sram_size, sram_size);
 
-    dim3 grid_dim(nbatch, nheads);  // batch_size x num_heads
-    dim3 block_dim(batch_cols);  // Bc threads per block
+    dim3 grid_dim(nbatch, nheads);
+    dim3 block_dim(batch_cols);
 
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
         q.data_ptr<float>(), k.data_ptr<float>(), v.data_ptr<float>(),
