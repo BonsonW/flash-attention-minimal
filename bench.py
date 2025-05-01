@@ -1,6 +1,8 @@
 import math
 
 import torch
+import tensorhue
+
 from torch.nn import functional as F
 from torch.utils.cpp_extension import load
 from einops import rearrange, repeat
@@ -29,10 +31,18 @@ def construct_local_mask(
         return col_idx > row_idx + sk - sq + window_size[1]
     else:
         sk = torch.full_like(col_idx, seqlen_k) if key_padding_mask is None else sk
-        return torch.logical_or(
+        ret = torch.logical_or(
             col_idx > torch.minimum(row_idx + sk - sq + window_size[1], sk),
             col_idx < row_idx + sk - sq - window_size[0],
         )
+
+        # show local mask
+        print('\n')
+        print('=== local mask ===')
+        tensorhue.viz(ret.cpu())
+        print('\n')
+
+        return ret
 
 @torch.inference_mode()
 def attention_ref(
@@ -126,13 +136,12 @@ q = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
 k = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
 v = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
 
-
 print('=== profiling manual attention ===')
 
 # Our minimal flash attention aims to be faster than this by avoiding HBM read/writes of N^2 matrices.
 
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    manual_result, attention = attention_ref(q, k, v)
+    manual_result, attention = attention_ref(q, k, v, window_size=(10, 10))
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('=== profiling minimal flash attention === ')
