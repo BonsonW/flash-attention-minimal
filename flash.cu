@@ -84,14 +84,15 @@ void forward_kernel(const float* q, const float* k, const float* v, const int se
 }
 
 torch::Tensor forward(torch::Tensor q, torch::Tensor k, torch::Tensor v) {
-    // TODO: determine Bc, Br dynamically
-    const int batch_cols = 32;
-    const int batch_rows = 32;
-
     const int nbatch = q.size(0);
     const int seqlen = q.size(1);
     const int nheads = q.size(2);
     const int headdim = q.size(3);
+
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    const int batch_cols = std::ceil(prop.sharedMemPerBlock / 4 * headdim);
+    const int batch_rows = std::min(batch_cols, headdim);
 
     const int Tc = ceil((float) seqlen / batch_cols);
     const int Tr = ceil((float) seqlen / batch_rows);
