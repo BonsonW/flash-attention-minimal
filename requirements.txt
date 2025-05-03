@@ -1,0 +1,4 @@
+einops==0.8.*
+tensorhue==0.1.*
+torch==2.7.*
+ninja==1.11.*
