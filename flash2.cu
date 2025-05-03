@@ -15,17 +15,19 @@ void forward_kernel(
     const int Tr,
     const int Bc,
     const int Br,
-    const float softmax_scale
+    const float softmax_scale,
+    const int win_l,
+    const int win_r
 ) {
     int tx = threadIdx.x;
-    int bx = blockIdx.x;
+    int batch_idx = blockIdx.x;
     int head_idx = blockIdx.y;
     int bz = blockIdx.z;
     int seq_stride = nhead * headdim;
     int tile_stride = nhead;
 
     // Offset into Q,K,V,O,l,m - different for each batch and head
-    int qkv_offset = (bx * nhead * seqlen * headdim) + (head_idx * headdim);
+    int qkv_offset = (batch_idx * nhead * seqlen * headdim) + (head_idx * headdim);
 
     // Define SRAM for Q,K,V,S
     extern __shared__ float sram[];
@@ -54,15 +56,16 @@ void forward_kernel(
         }
         // S = QK^T, row_m = rowmax(S)
         float row_m = -INFINITY;
-
-	    int not_mask = 1;
         for (int y = 0; y < Bc; y++) {
             float sum = 0;
             for (int x = 0; x < headdim; x++) {
                 sum += Qi[(tx * headdim) + x] * Kj[(y * headdim) + x];
             }
             sum *= softmax_scale;
-            S[(Bc * tx) + y] = (~not_mask & (bz * Br + tx < j * Bc + y)) ? -INFINITY : sum;
+
+            bool out_winr = (bz * Br) + tx < (j * Bc) + y - win_r;
+            bool out_winl = (bz * Br) + tx > (j * Bc) + y + win_l;
+            S[(Bc * tx) + y] = out_winr || out_winl ? -INFINITY : sum;
 
             if (sum > row_m) row_m = sum;
         }
@@ -98,7 +101,7 @@ void forward_kernel(
     }
 }
 
-torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
+torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V, int win_l, int win_r) {
     // TODO: determine Bc, Br dynamically
     const int Bc = 32;
     const int Br = 32;
@@ -127,7 +130,7 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
 
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
         Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(), O.data_ptr<float>(),
-        seqlen, nhead, headdim, Tc, Tr, Bc, Br, softmax_scale
+        seqlen, nhead, headdim, Tc, Tr, Bc, Br, softmax_scale, win_l, win_r
     );
     return O;
 }

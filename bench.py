@@ -36,12 +36,6 @@ def construct_local_mask(
             col_idx < row_idx + sk - sq - window_size[0],
         )
 
-        # show local mask
-        # print('\n')
-        # print('=== local mask ===')
-        # tensorhue.viz(ret.cpu())
-        # print('\n')
-
         return ret
 
 @torch.inference_mode()
@@ -51,8 +45,6 @@ def attention_ref(
     v,
     query_padding_mask=None,
     key_padding_mask=None,
-    dropout_p=0.0,
-    dropout_mask=None,
     causal=False,
     window_size=(-1, -1),  # -1 means infinite window size
     upcast=False,
@@ -107,32 +99,23 @@ def attention_ref(
     # Some rows might be completely masked out so we fill them with zero instead of NaN
     if window_size[0] >= 0 or window_size[1] >= 0:
         attention = attention.masked_fill(torch.all(local_mask, dim=-1, keepdim=True), 0.0)
-    # We want to mask here so that the attention matrix doesn't have any NaNs
-    # Otherwise we'll get NaN in dV
-    if query_padding_mask is not None:
-        attention = attention.masked_fill(rearrange(~query_padding_mask, "b s -> b 1 s 1"), 0.0)
-    dropout_scaling = 1.0 / (1 - dropout_p)
-    # attention_drop = attention.masked_fill(~dropout_mask, 0.0) * dropout_scaling
-    # output = torch.einsum('bhts,bshd->bthd', attention_drop , v)
-    if dropout_mask is not None:
-        attention_drop = attention.masked_fill(~dropout_mask, 0.0)
-    else:
-        attention_drop = attention
-    output = torch.einsum("bhts,bshd->bthd", attention_drop, v * dropout_scaling)
+    output = torch.einsum("bhts,bshd->bthd", attention, v)
     if query_padding_mask is not None:
         output.masked_fill_(rearrange(~query_padding_mask, "b s -> b s 1 1"), 0.0)
     return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
 
 # Load the CUDA kernel as a python module
+minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O4'])
 # minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2'])
-minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2'])
 # minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash_opt.cu'], extra_cuda_cflags=['-O3', '-use_fast_math'])
 
 # Use small model params, otherwise slower than manual attention. See caveats in README.
 batch_size = 32
+seq_len = 64
 n_head = 8
-seq_len = 256
 head_embd = 64
+win_l = 16
+win_r = 16
 
 q = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
 k = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
@@ -143,14 +126,20 @@ print('=== profiling manual attention ===')
 # Our minimal flash attention aims to be faster than this by avoiding HBM read/writes of N^2 matrices.
 
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    manual_result, attention = attention_ref(q, k, v, window_size=(-1, -1))
+    manual_result, attention = attention_ref(q, k, v, window_size=(win_l, win_r))
     # manual_result, attention = attention_ref(q, k, v, window_size=(8, 8))
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('=== profiling minimal flash attention === ')
 
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    minimal_result = minimal_attn.forward(q, k, v)
+    minimal_result = minimal_attn.forward(q, k, v, win_l, win_r)
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('attn values sanity check:', torch.allclose(minimal_result, manual_result, rtol=0, atol=1e-02))
+
+# show local mask
+# print('\n')
+# print('manual slice')
+# tensorhue.viz(attention[0][0][0:seq_len][0:seq_len].cpu())
+# print('\n')
