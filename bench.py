@@ -55,7 +55,7 @@ def attention_ref(
     dropout_mask=None,
     causal=False,
     window_size=(-1, -1),  # -1 means infinite window size
-    upcast=True,
+    upcast=False,
     reorder_ops=False,
 ):
     """
@@ -124,13 +124,14 @@ def attention_ref(
     return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
 
 # Load the CUDA kernel as a python module
+# minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2'])
 minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2'])
 # minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash_opt.cu'], extra_cuda_cflags=['-O3', '-use_fast_math'])
 
 # Use small model params, otherwise slower than manual attention. See caveats in README.
-batch_size = 512
+batch_size = 32
 n_head = 8
-seq_len = 512
+seq_len = 256
 head_embd = 64
 
 q = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
@@ -148,12 +149,8 @@ print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
 print('=== profiling minimal flash attention === ')
 
-a = q.transpose(1, 2).contiguous()
-b = k.transpose(1, 2).contiguous()
-c = v.transpose(1, 2).contiguous()
-
 with torch.autograd.profiler.profile(use_device = 'cuda') as prof:
-    minimal_result = minimal_attn.forward(a, b, c)
+    minimal_result = minimal_attn.forward(q, k, v)
 print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
 
-print('attn values sanity check:', torch.allclose(minimal_result.transpose(1, 2), manual_result, rtol=0, atol=1e-02))
+print('attn values sanity check:', torch.allclose(minimal_result, manual_result, rtol=0, atol=1e-02))

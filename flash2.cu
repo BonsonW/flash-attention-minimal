@@ -3,30 +3,42 @@
 #include <cuda_runtime.h>
 
 __global__
-void forward_kernel(const float* Q, const float* K, const float* V, const int seqlen, const int headdim,
-                    const int Tc, const int Tr, const int Bc, const int Br, const float softmax_scale, 
-		    const int nhead, float* O) {
+void forward_kernel(
+    const float* Q,
+    const float* K,
+    const float* V,
+    float* O,
+    const int seqlen,
+    const int nhead,
+    const int headdim,
+    const int Tc,
+    const int Tr,
+    const int Bc,
+    const int Br,
+    const float softmax_scale
+) {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
     int head_idx = blockIdx.y;
     int bz = blockIdx.z;
+    int seq_stride = nhead * headdim;
+    int tile_stride = nhead;
 
     // Offset into Q,K,V,O,l,m - different for each batch and head
-    int qkv_offset = (bx * nhead * seqlen * headdim) + (head_idx * seqlen * headdim);
+    int qkv_offset = (bx * nhead * seqlen * headdim) + (head_idx * headdim);
 
     // Define SRAM for Q,K,V,S
     extern __shared__ float sram[];
-    int tile_size_qo = Br * headdim;  // size of Qi, Oi
-    int tile_size_kv = Bc * headdim;  // size of Kj, Vj
+    int tile_size = Br * headdim;
     float* Qi = sram;
-    float* Oi = &sram[tile_size_qo];
-    float* Kj = &sram[tile_size_qo * 2];
-    float* Vj = &sram[tile_size_qo * 2 + tile_size_kv];
-    float* S = &sram[tile_size_qo * 2 + tile_size_kv * 2];
+    float* Oi = &sram[tile_size];
+    float* Kj = &sram[tile_size * 2];
+    float* Vj = &sram[tile_size * 2 + tile_size];
+    float* S = &sram[tile_size * 2 + tile_size * 2];
 
     // Load Qi to SRAM
     for (int x = 0; x < headdim; x++) {
-        Qi[(tx * headdim) + x] = Q[qkv_offset + (tile_size_qo * bz) + (tx * headdim) + x];
+        Qi[(tx * headdim) + x] = Q[qkv_offset + (tile_size * bz * tile_stride) + (tx * seq_stride) + x];
         Oi[(tx * headdim) + x] = 0; // zero
     }
     
@@ -37,8 +49,8 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int se
     for (int j = 0; j < Tc; j++)  {
         // Load Kj, Vj to SRAM
         for (int x = 0; x < headdim; x++) {
-            Kj[(tx * headdim) + x] = K[qkv_offset + (tile_size_kv * j) + (tx * headdim) + x];
-            Vj[(tx * headdim) + x] = V[qkv_offset + (tile_size_kv * j) + (tx * headdim) + x];
+            Kj[(tx * headdim) + x] = K[qkv_offset + (tile_size * j * tile_stride) + (tx * seq_stride) + x];
+            Vj[(tx * headdim) + x] = V[qkv_offset + (tile_size * j * tile_stride) + (tx * seq_stride) + x];
         }
         // S = QK^T, row_m = rowmax(S)
         float row_m = -INFINITY;
@@ -82,7 +94,7 @@ void forward_kernel(const float* Q, const float* K, const float* V, const int se
         row_m_prev = row_m_new;
     }
     for (int x = 0; x < headdim; x++) {
-        O[qkv_offset + (tile_size_qo * bz) + (tx * headdim) + x] = 1 / row_l_new * Oi[(tx * headdim) + x];
+        O[qkv_offset + (tile_size * bz * tile_stride) + (tx * seq_stride) + x] = 1 / row_l_new * Oi[(tx * headdim) + x];
     }
 }
 
@@ -92,8 +104,8 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     const int Br = 32;
 
     const int nbatch = Q.size(0); 
-    const int nhead = Q.size(1);
-    const int seqlen = Q.size(2);
+    const int seqlen = Q.size(1);
+    const int nhead = Q.size(2);
     const int headdim = Q.size(3);
 
     const int Tc = ceil((float) seqlen / Bc);
@@ -114,8 +126,8 @@ torch::Tensor forward(torch::Tensor Q, torch::Tensor K, torch::Tensor V) {
     dim3 block_dim(Bc);  // Bc threads per block
 
     forward_kernel<<<grid_dim, block_dim, sram_size>>>(
-        Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(),
-        seqlen, headdim, Tc, Tr, Bc, Br, softmax_scale, nhead, O.data_ptr<float>()
+        Q.data_ptr<float>(), K.data_ptr<float>(), V.data_ptr<float>(), O.data_ptr<float>(),
+        seqlen, nhead, headdim, Tc, Tr, Bc, Br, softmax_scale
     );
     return O;
 }
