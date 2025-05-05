@@ -105,17 +105,17 @@ def attention_ref(
     return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
 
 # Load the CUDA kernel as a python module
-minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O4'])
-# minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2'])
+minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O4', '-use_fast_math'])
+# minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash2.cu'], extra_cuda_cflags=['-O2', '-use_fast_math'])
 # minimal_attn = load(name='minimal_attn', sources=['main.cpp', 'flash_opt.cu'], extra_cuda_cflags=['-O3', '-use_fast_math'])
 
 # Use small model params, otherwise slower than manual attention. See caveats in README.
-batch_size = 32
-seq_len = 64
+batch_size = 512
+seq_len = 800
 n_head = 8
 head_embd = 64
-win_l = 16
-win_r = 16
+win_l = -1
+win_r = -1
 
 q = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()
 k = torch.randn(batch_size, seq_len, n_head, head_embd).cuda()

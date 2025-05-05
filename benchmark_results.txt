@@ -1,0 +1,22 @@
+A100
+
+pytorch
+Self CPU time total: 197.179ms
+Self CUDA time total: 197.858ms
+
+vanilla
+Self CPU time total: 2.106s
+Self CUDA time total: 9.705ms
+
+tensore cores
+Self CPU time total: 329.247ms
+Self CUDA time total: 4.122ms
+
+flash2
+Self CPU time total: 2.749s
+Self CUDA time total: 4.104ms
+
+opt
+Self CPU time total: 31.157ms
+Self CUDA time total: 3.805ms
+

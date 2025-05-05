@@ -63,8 +63,8 @@ void forward_kernel(
             }
             sum *= softmax_scale;
 
-            bool out_winr = (bz * Br) + tx < (j * Bc) + y - win_r;
-            bool out_winl = (bz * Br) + tx > (j * Bc) + y + win_l;
+            bool out_winr = win_r >= 0 && (bz * Br) + tx < (j * Bc) + y - win_r;
+            bool out_winl = win_l >= 0 && (bz * Br) + tx > (j * Bc) + y + win_l;
             S[(Bc * tx) + y] = out_winr || out_winl ? -INFINITY : sum;
 
             if (sum > row_m) row_m = sum;
